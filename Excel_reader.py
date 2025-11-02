@@ -14,7 +14,7 @@ def read_excel_files(df1, df2, df3):
     columns_to_drop = [
         "Número Documento Referencia", "Material", "Número de Cuenta",
         "Acreedor", "Número Documento", "Descripción", "Documento Compras",
-        "Pos Docum Compras", "Año", "Activo Fijo", "Clase de Documento",
+        "Pos Docum Compras", "Activo Fijo", "Clase de Documento",
         "Clase de Actividad", "Deudor", "Elemento PEP", "Orden", "Pedido Cliente",
         "Fecha Valor", "Fecha Entrada", "Fecha Documento", "División",
         "Período", " Año"

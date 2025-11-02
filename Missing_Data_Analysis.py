@@ -125,7 +125,7 @@ def visualize_missingness(df, variables):
     """
     missing_matrix = df[variables].isnull().astype(int)
     
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(10, 6))
     
     # Correlation heatmap of missingness
     missing_corr = missing_matrix.corr()
