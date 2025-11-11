@@ -133,9 +133,6 @@ def mice_imputation(db, variables_to_impute):
     total_after = missing_after.sum()
     total_imputed = total_before - total_after
 
-    print("\n" + "-" * 80)
-    print("OVERALL STATISTICS")
-    print("-" * 80)
     print(f"Total missing values before: {total_before:,}")
     print(f"Total missing values after:  {total_after:,}")
     print(f"Total values imputed:        {total_imputed:,}")

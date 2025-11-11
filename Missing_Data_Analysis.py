@@ -161,20 +161,11 @@ def comprehensive_missingness_analysis(df, variables_to_impute):
             mcar_result = test_mcar_using_ttest(df, var, numeric_vars)
             mar_result = test_mar_vs_mnar_categorical(df, var, categorical_vars)
             results[var] = {'MCAR_test': mcar_result, 'MAR_test': mar_result}
-    
-    # 3. Display correlation matrix
-    print("=" * 80)
-    print("CORRELATION BETWEEN MISSINGNESS INDICATORS")
-    print("=" * 80)
-    
+        
     # 4. Visualizations
     visualize_missingness(df, variables_present)
     
     # 5. Summary and recommendations
-    print("\n" + "=" * 80)
-    print("SUMMARY AND RECOMMENDATIONS")
-    print("=" * 80)
-    
     # Create PrettyTable
     table = PrettyTable()
     table.field_names = ["Variable", "Missing %", "Type", "Recommended Method"]

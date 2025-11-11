@@ -1,12 +1,12 @@
-# ============================================
-# Multicollinearity_Analysis.py
-# ============================================
+# ================================================
+# Multicollinearity Analysis and Feature Selection
+# ================================================
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, rankdata
 from scipy.cluster import hierarchy
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from prettytable import PrettyTable
@@ -18,7 +18,8 @@ def comprehensive_multicollinearity_analysis(
     vif_threshold=10, 
     corr_threshold=0.85,
     show_plots=True,
-    verbose=True
+    verbose=True,
+    protected_features=None
 ):
     """
     Perform comprehensive multicollinearity analysis and feature selection.
@@ -35,11 +36,15 @@ def comprehensive_multicollinearity_analysis(
         Whether to display visualizations (correlation heatmap, dendrogram)
     verbose : bool, default=True
         Whether to print detailed analysis results
+    protected_features : list, default=None
+        List of feature names that should never be dropped (e.g., critical business features
+        like 'Monto', 'Cantidad'). These features will be kept even if they are highly 
+        correlated with other features.
     
     Returns:
     --------
     df_selected : pd.DataFrame
-        Dataframe with selected features (redundant features removed)
+        Dataframe with selected features (redundant features removed, protected features kept)
     features_to_drop : list
         List of features recommended for removal
     analysis_results : dict
@@ -49,8 +54,22 @@ def comprehensive_multicollinearity_analysis(
             - 'vif_data': DataFrame with VIF values for all features
             - 'cluster_info': DataFrame with cluster assignments
             - 'drop_reasons': Dictionary with reasons for dropping each feature
+            - 'protected_features': List of features that were protected from removal
     """
     
+    # Initialize protected features
+    if protected_features is None:
+        protected_features = []
+    else:
+        # Ensure protected features exist in data
+        protected_features = [f for f in protected_features if f in data.columns]
+        if verbose and protected_features:
+            print(f"The following {len(protected_features)} features will be kept regardless of multicollinearity:")
+            for i, feat in enumerate(protected_features, 1):
+                print(f"  {i}. {feat}")
+            print()
+    
+    # Handle 'id' column
     if 'id' in data.columns:
         transaction_id = data['id'].copy()
         data_for_analysis = data.drop(columns=['id'])
@@ -87,7 +106,7 @@ def comprehensive_multicollinearity_analysis(
         high_corr_pairs.sort(key=lambda x: x[2], reverse=True)
         
         if show_plots:
-            plt.figure(figsize=(10, 10))
+            plt.figure(figsize=(10, 6))
             mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
             sns.heatmap(corr_matrix, mask=mask, annot=False, cmap='RdYlBu_r', 
                         center=0, square=True, linewidths=0.5, 
@@ -186,8 +205,6 @@ def comprehensive_multicollinearity_analysis(
         - cluster_df: DataFrame with columns [Feature, Cluster]
         - linkage_matrix: Hierarchical clustering linkage for dendrogram
         """
-
-        from scipy.stats import rankdata
         
         # Rank each column
         ranked_data = np.column_stack([rankdata(df[col]) for col in df.columns])
@@ -251,25 +268,27 @@ def comprehensive_multicollinearity_analysis(
                 for cluster_id, features in multi_feature_clusters:
                     print(f"\nCluster {cluster_id} ({len(features)} features):")
                     for feat in features:
-                        print(f"  - {feat}")
+                        protected_marker = " [PROTECTED]" if feat in protected_features else ""
+                        print(f"  - {feat}{protected_marker}")
                 print()
         
         return cluster_df, linkage_matrix
     
     # --------------------------------------------
-    # 4. Feature Selection
+    # 4. Feature Selection with Protection
     # --------------------------------------------
     
-    def select_features(corr_pairs, vif_df, cluster_df, vif_thresh, corr_thresh):
+    def select_features(corr_pairs, vif_df, cluster_df, vif_thresh, corr_thresh, protected):
         """
         Determine which features to drop based on correlation, VIF, and clustering analysis.
+        Protected features are never dropped.
         
         Strategy:
-        1. From correlated pairs: Drop the feature with higher VIF (more redundant overall)
-        2. From clusters: Keep only the feature with lowest VIF per cluster
+        1. From correlated pairs: Drop the feature with higher VIF (unless protected)
+        2. From clusters: Keep protected features or feature with lowest VIF per cluster
         
         Purpose: Automatically select which redundant features to remove while keeping
-        the most informative representative from each redundant group.
+        the most informative representative from each redundant group and all protected features.
         
         Returns:
         - features_to_drop: List of feature names to remove
@@ -278,12 +297,36 @@ def comprehensive_multicollinearity_analysis(
         
         features_to_drop = set()
         drop_reasons = {}
+        protected_kept_count = 0
         
-        # Strategy 1: From correlated pairs, drop feature with higher VIF
+        # Strategy 1: From correlated pairs, drop feature with higher VIF (respect protection)
         for feat1, feat2, corr_val in corr_pairs:
             if feat1 in features_to_drop or feat2 in features_to_drop:
                 continue
             
+            # Check if either feature is protected
+            feat1_protected = feat1 in protected
+            feat2_protected = feat2 in protected
+            
+            if feat1_protected and feat2_protected:
+                # Both protected, keep both, skip
+                if verbose:
+                    print(f"  Note: {feat1} and {feat2} are both protected despite high correlation (r={corr_val:.3f})")
+                continue
+            elif feat1_protected:
+                # Protect feat1, drop feat2
+                features_to_drop.add(feat2)
+                drop_reasons[feat2] = f"High correlation with {feat1} (r={corr_val:.3f}) - {feat1} is protected"
+                protected_kept_count += 1
+                continue
+            elif feat2_protected:
+                # Protect feat2, drop feat1
+                features_to_drop.add(feat1)
+                drop_reasons[feat1] = f"High correlation with {feat2} (r={corr_val:.3f}) - {feat2} is protected"
+                protected_kept_count += 1
+                continue
+            
+            # Neither protected, use normal VIF logic
             vif1 = vif_df[vif_df['Feature'] == feat1]['VIF'].values[0]
             vif2 = vif_df[vif_df['Feature'] == feat2]['VIF'].values[0]
             
@@ -294,23 +337,49 @@ def comprehensive_multicollinearity_analysis(
                 features_to_drop.add(feat2)
                 drop_reasons[feat2] = f"High correlation with {feat1} (r={corr_val:.3f}), VIF={vif2:.1f} > {vif1:.1f}"
         
-        # Strategy 2: From clusters, keep feature with lowest VIF
+        # Strategy 2: From clusters, keep protected features or feature with lowest VIF
         for cluster_id in cluster_df['Cluster'].unique():
             cluster_features = cluster_df[cluster_df['Cluster'] == cluster_id]['Feature'].tolist()
             
             if len(cluster_features) > 1:
-                cluster_vifs = vif_df[vif_df['Feature'].isin(cluster_features)].copy()
-                cluster_vifs = cluster_vifs.sort_values('VIF')
-                keep_feature = cluster_vifs.iloc[0]['Feature']
+                # Check if any features in cluster are protected
+                protected_in_cluster = [f for f in cluster_features if f in protected]
                 
-                for feat in cluster_features:
-                    if feat != keep_feature and feat not in features_to_drop:
-                        features_to_drop.add(feat)
-                        drop_reasons[feat] = f"Clustered with {keep_feature} (kept for lower VIF)"
+                if protected_in_cluster:
+                    # Keep all protected features, drop others
+                    for feat in cluster_features:
+                        if feat not in protected_in_cluster and feat not in features_to_drop:
+                            features_to_drop.add(feat)
+                            drop_reasons[feat] = f"Clustered with protected feature(s): {', '.join(protected_in_cluster)}"
+                else:
+                    # No protected features, keep feature with lowest VIF
+                    cluster_vifs = vif_df[vif_df['Feature'].isin(cluster_features)].copy()
+                    cluster_vifs = cluster_vifs.sort_values('VIF')
+                    keep_feature = cluster_vifs.iloc[0]['Feature']
+                    
+                    for feat in cluster_features:
+                        if feat != keep_feature and feat not in features_to_drop:
+                            features_to_drop.add(feat)
+                            drop_reasons[feat] = f"Clustered with {keep_feature} (kept for lower VIF)"
+        
+        # FINAL CHECK: Ensure no protected features are in drop list
+        protected_saved = []
+        for protected_feat in protected:
+            if protected_feat in features_to_drop:
+                features_to_drop.remove(protected_feat)
+                protected_saved.append(protected_feat)
         
         if verbose:
             reduction_pct = len(features_to_drop)/len(vif_df)*100 if len(vif_df) > 0 else 0
             print(f"Feature Selection: {len(vif_df)} -> {len(vif_df) - len(features_to_drop)} features ({reduction_pct:.1f}% reduction)")
+            
+            if protected_saved:
+                print(f"\nProtected features that were saved from removal:")
+                for feat in protected_saved:
+                    print(f"  - {feat}")
+            
+            if protected_kept_count > 0:
+                print(f"\n{protected_kept_count} correlated features dropped to preserve protected features")
             
             if features_to_drop:
                 print(f"\nFeatures to drop ({len(features_to_drop)}):")
@@ -332,24 +401,31 @@ def comprehensive_multicollinearity_analysis(
     # Execute Analysis Pipeline
     # --------------------------------------------
     
-    high_corr_pairs, corr_matrix = analyze_correlations(data, corr_threshold)
-    vif_data = calculate_vif(data, vif_threshold)
-    cluster_info, linkage_matrix = cluster_features(data, corr_threshold)
+    high_corr_pairs, corr_matrix = analyze_correlations(data_for_analysis, corr_threshold)
+    vif_data = calculate_vif(data_for_analysis, vif_threshold)
+    cluster_info, linkage_matrix = cluster_features(data_for_analysis, corr_threshold)
     features_to_drop, drop_reasons = select_features(
-        high_corr_pairs, vif_data, cluster_info, vif_threshold, corr_threshold
+        high_corr_pairs, vif_data, cluster_info, vif_threshold, corr_threshold, protected_features
     )
     
     # Apply feature selection
     df_selected = data_for_analysis.drop(columns=features_to_drop, errors='ignore')
 
+    # Add back 'id' column if it existed
     if transaction_id is not None:
-        df_selected['id'] = transaction_id
+        df_selected.insert(0, 'id', transaction_id)
 
     if verbose:
-        selected_features = df_selected.columns.tolist()
+        selected_features = [f for f in df_selected.columns if f != 'id']
+        protected_in_final = [f for f in protected_features if f in selected_features]
+        
         print(f"\nRetained features ({len(selected_features)}):")
         for i, feat in enumerate(selected_features, 1):
-            print(f"  {i:2d}. {feat}")
+            protected_marker = " [PROTECTED]" if feat in protected_features else ""
+            print(f"  {i:2d}. {feat}{protected_marker}")
+        
+        if protected_in_final:
+            print(f"\n✓ All {len(protected_in_final)} protected features successfully retained")
     
     # Package results
     analysis_results = {
@@ -358,7 +434,8 @@ def comprehensive_multicollinearity_analysis(
         'vif_data': vif_data,
         'cluster_info': cluster_info,
         'linkage_matrix': linkage_matrix,
-        'drop_reasons': drop_reasons
+        'drop_reasons': drop_reasons,
+        'protected_features': protected_features
     }
     
     return df_selected, features_to_drop, analysis_results
