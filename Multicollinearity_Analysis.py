@@ -51,6 +51,13 @@ def comprehensive_multicollinearity_analysis(
             - 'drop_reasons': Dictionary with reasons for dropping each feature
     """
     
+    if 'id' in data.columns:
+        transaction_id = data['id'].copy()
+        data_for_analysis = data.drop(columns=['id'])
+    else:
+        transaction_id = None
+        data_for_analysis = data.copy()
+
     # --------------------------------------------
     # 1. Correlation Analysis
     # --------------------------------------------
@@ -333,8 +340,11 @@ def comprehensive_multicollinearity_analysis(
     )
     
     # Apply feature selection
-    df_selected = data.drop(columns=features_to_drop, errors='ignore')
-    
+    df_selected = data_for_analysis.drop(columns=features_to_drop, errors='ignore')
+
+    if transaction_id is not None:
+        df_selected['id'] = transaction_id
+
     if verbose:
         selected_features = df_selected.columns.tolist()
         print(f"\nRetained features ({len(selected_features)}):")

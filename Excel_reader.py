@@ -1,5 +1,5 @@
 # =================================================
-# DEJAR COMENTADO SI YA SE TIENE EL DATAFRAME FINAL
+# Read and preprocess Excel files
 # =================================================
 
 import pandas as pd
@@ -10,6 +10,8 @@ def read_excel_files(df1, df2, df3):
         pd.read_excel(df2),
         pd.read_excel(df3)
     ], ignore_index=True)
+    
+    df_excel.insert(0, 'id', range(len(df_excel)))
 
     columns_to_drop = [
         "Número Documento Referencia", "Material",

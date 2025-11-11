@@ -11,6 +11,13 @@ from sklearn.ensemble import RandomForestRegressor
 from prettytable import PrettyTable
 
 def mice_imputation(db, variables_to_impute):
+    if 'id' in db.columns:
+        transaction_id = db['id'].copy()
+    else:
+        print("WARNING: 'id' column not found. Adding it now.")
+        transaction_id = pd.Series(range(len(db)), name='id')
+        db['id'] = transaction_id
+
     # Identify data types
     numeric_vars = []
     categorical_vars = []
@@ -138,6 +145,9 @@ def mice_imputation(db, variables_to_impute):
     else:
         print(f"\nStatus: {total_after:,} missing values remain")
 
+    if 'id' not in db.columns:
+        db['id'] = transaction_id
+    
     db.to_csv("PICE BD 2025-Imputed.csv", index=False)
 
     return db
